@@ -1,17 +1,33 @@
-require("dotenv").config();
 const { URL } = require("url");
 const fetch = require("node-fetch");
+const escapeMarkdown = require("escape-markdown");
+const _ = require("lodash");
 
-// attach auth info to params
+// list filtering helpers
+
+const LIST_REGEXP_TO_EXCLUDE = [
+  /^\[WIP\]/,
+  /近日対応予定/,
+  /対応時期未定/,
+  /未処理/,
+];
+
+const filterLists = (lists) => {
+  return lists.filter((list) => {
+    let useThisList = true;
+    LIST_REGEXP_TO_EXCLUDE.forEach((regExp) => {
+      if (regExp.test(list.name)) useThisList = false;
+    });
+    return useThisList;
+  });
+};
+
+// Trello API communicators
 
 const attachAuthParams = (params) => {
-  console.log(process.env.TRELLO_API_TOKEN);
-  console.log(process.env.TRELLO_API_KEY);
   params.append("key", process.env.TRELLO_API_KEY);
   params.append("token", process.env.TRELLO_API_TOKEN);
 };
-
-// fetch board data
 
 const fetchBoardData = async (idBoard) => {
   const url = new URL(`https://api.trello.com/1/boards/${idBoard}`);
@@ -23,8 +39,40 @@ const fetchBoardData = async (idBoard) => {
     method: "get",
     headers: { Accept: "application/json" },
   });
-  console.log(response);
   return response.json();
+};
+
+// generate markdown! yey
+
+const generateMarkdown = (boardData) => {
+  const e = escapeMarkdown;
+
+  // board name & desc
+  let output = `# ${e(boardData.name)}\n\n`;
+  output += `${e(boardData.desc)}\n\n`;
+
+  // each list
+  filterLists(boardData.lists).forEach((list) => {
+    const idList = list.id;
+
+    // list name
+    output += `## ${e(list.name.replace(/⭕ ?/, ""))}\n\n`;
+
+    // get cards
+    let cards = boardData.cards.filter((card) => card.idList === idList);
+
+    cards.forEach((card) => {
+      let tagsText = card.labels.reduce((acc, label) => {
+        return `${acc}[${label.name}]`;
+      }, "");
+      tagsText = tagsText ? `${e(tagsText)} ` : "";
+      output += `- ${tagsText}[${e(card.name)}](${card.shortUrl})\n`;
+    });
+
+    // spacing
+    output += `\n`;
+  });
+  return output;
 };
 
 // main handler
@@ -33,7 +81,6 @@ exports.handler = async (event, context) => {
   console.log("=== request accepted ===");
 
   if (event.httpMethod !== "GET") {
-    raiseError("ERR: method is not GET");
     return {
       statusCode: 400,
       body: "Must GET to this function",
@@ -41,19 +88,14 @@ exports.handler = async (event, context) => {
   }
 
   const { idBoard } = event.queryStringParameters;
-
-  const resp = await fetchBoardData(idBoard)
-
-  console.log(resp);
-
-  //const { idCard } = JSON.parse(event.body);
-
-  //const card = await fetchCardData(idCard)
-  //const boardData = await getListsFromBoard(card.idBoard);
-  //const list = findParentList(card, boardData);
+  const boardData = await fetchBoardData(idBoard);
+  const md = generateMarkdown(boardData);
 
   return {
     statusCode: 200,
-    body: JSON.stringify(resp),
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+    },
+    body: md,
   };
 };

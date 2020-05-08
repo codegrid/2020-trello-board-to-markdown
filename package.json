@@ -10,7 +10,8 @@
   "license": "MIT",
   "dependencies": {},
   "devDependencies": {
-    "dotenv": "^8.2.0",
+    "escape-markdown": "^1.0.4",
+    "lodash": "^4.17.15",
     "node-fetch": "^2.6.0"
   }
 }
